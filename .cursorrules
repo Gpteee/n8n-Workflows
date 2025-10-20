@@ -1,0 +1,7 @@
+Always read .cursor/rules.md for complete instructions.
+
+Core behavior:
+- Query n8n-mcp before any workflow generation
+- Automatically capture learnings after tasks
+- Commit knowledge updates without asking
+- Use conventional commit format
