@@ -1,0 +1,469 @@
+{
+  "name": "Automated Project Documentation Generator",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "project-docs-webhook",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Project Update Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "webhookId": "project-docs-webhook"
+    },
+    {
+      "parameters": {
+        "interval": 3600000,
+        "triggerAtStartup": true
+      },
+      "id": "schedule-trigger",
+      "name": "Hourly Documentation Check",
+      "type": "n8n-nodes-base.schedule",
+      "typeVersion": 1,
+      "position": [240, 500]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Parse incoming webhook data or initialize scheduled run\nconst items = $input.all();\nconst isWebhook = $node['Project Update Webhook'].json ? true : false;\n\nif (isWebhook) {\n  // Handle webhook from GitHub, Cursor, or manual trigger\n  const webhookData = $node['Project Update Webhook'].json;\n  return {\n    projectId: webhookData.projectId || 'default',\n    repositories: webhookData.repositories || [],\n    updateType: webhookData.updateType || 'manual',\n    triggerSource: 'webhook',\n    timestamp: new Date().toISOString()\n  };\n} else {\n  // Handle scheduled run - check all configured projects\n  return {\n    projectId: 'scheduled-scan',\n    repositories: [\n      // Default repositories to monitor\n      { name: 'main-project', url: '', branch: 'main' },\n      { name: 'frontend', url: '', branch: 'main' },\n      { name: 'backend', url: '', branch: 'main' }\n    ],\n    updateType: 'scheduled',\n    triggerSource: 'schedule',\n    timestamp: new Date().toISOString()\n  };\n}"
+      },
+      "id": "parse-trigger",
+      "name": "Parse Trigger Data",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [460, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.repositories}}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      },
+      "id": "check-repositories",
+      "name": "Has Repositories?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [680, 400]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "split-repositories",
+      "name": "Process Each Repository",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 1,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "resource": "repository",
+        "operation": "get",
+        "owner": "={{$json.repositories[$json.batchIndex].owner}}",
+        "repository": "={{$json.repositories[$json.batchIndex].name}}"
+      },
+      "id": "get-repo-info",
+      "name": "Get Repository Info",
+      "type": "n8n-nodes-base.github",
+      "typeVersion": 1,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "resource": "file",
+        "operation": "list",
+        "owner": "={{$json.repositories[$json.batchIndex].owner}}",
+        "repository": "={{$json.repositories[$json.batchIndex].name}}",
+        "filePath": ""
+      },
+      "id": "get-repo-structure",
+      "name": "Get Repository Structure",
+      "type": "n8n-nodes-base.github",
+      "typeVersion": 1,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Analyze repository structure and determine tech stack\nconst repoInfo = $node['Get Repository Info'].json;\nconst fileStructure = $node['Get Repository Structure'].json;\n\n// Detect tech stack based on files\nconst techStack = {\n  frontend: [],\n  backend: [],\n  database: [],\n  deployment: [],\n  tools: []\n};\n\n// Check for common files and patterns\nconst files = fileStructure.map(f => f.name.toLowerCase());\n\nif (files.includes('package.json')) {\n  techStack.frontend.push('Node.js/JavaScript');\n}\nif (files.includes('requirements.txt') || files.includes('pyproject.toml')) {\n  techStack.backend.push('Python');\n}\nif (files.includes('dockerfile') || files.includes('docker-compose.yml')) {\n  techStack.deployment.push('Docker');\n}\nif (files.includes('supabase')) {\n  techStack.database.push('Supabase');\n}\nif (files.includes('.lovable')) {\n  techStack.tools.push('Lovable');\n}\nif (files.includes('.cursor')) {\n  techStack.tools.push('Cursor');\n}\n\n// Generate documentation context\nreturn {\n  repository: {\n    name: repoInfo.name,\n    description: repoInfo.description,\n    language: repoInfo.language,\n    topics: repoInfo.topics || [],\n    lastUpdated: repoInfo.updated_at\n  },\n  techStack: techStack,\n  fileStructure: fileStructure.slice(0, 50), // Limit for API efficiency\n  analysisTimestamp: new Date().toISOString(),\n  needsDocumentation: true\n};"
+      },
+      "id": "analyze-project",
+      "name": "Analyze Project Structure",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1560, 300]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "create",
+        "messageText": "You are a technical documentation expert. Based on the following project analysis, generate comprehensive documentation for this project.\n\n**Project Information:**\n- Name: {{$json.repository.name}}\n- Description: {{$json.repository.description}}\n- Primary Language: {{$json.repository.language}}\n- Topics: {{$json.repository.topics.join(', ')}}\n\n**Technology Stack:**\n- Frontend: {{$json.techStack.frontend.join(', ')}}\n- Backend: {{$json.techStack.backend.join(', ')}}\n- Database: {{$json.techStack.database.join(', ')}}\n- Deployment: {{$json.techStack.deployment.join(', ')}}\n- Tools: {{$json.techStack.tools.join(', ')}}\n\n**File Structure (sample):**\n{{$json.fileStructure.map(f => `- ${f.name} (${f.type})`).join('\\n')}}\n\nPlease generate:\n1. **README.md** - Project overview, setup instructions, and usage\n2. **ARCHITECTURE.md** - Technical architecture and system design\n3. **API.md** - API documentation (if applicable)\n4. **DEPLOYMENT.md** - Deployment and infrastructure guide\n5. **CONTRIBUTING.md** - Development workflow and contribution guidelines\n\nFormat each document with proper markdown headers and structure. Focus on clarity and completeness for both technical and non-technical stakeholders.",
+        "options": {
+          "maxTokens": 4000,
+          "temperature": 0.3
+        }
+      },
+      "id": "generate-docs-claude",
+      "name": "Generate Documentation with Claude",
+      "type": "n8n-nodes-base.anthropic",
+      "typeVersion": 1,
+      "position": [1780, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Parse Claude's response and structure documentation\nconst claudeResponse = $node['Generate Documentation with Claude'].json.content[0].text;\nconst projectData = $node['Analyze Project Structure'].json;\n\n// Split the response into different document sections\nconst sections = claudeResponse.split('# ');\nconst documents = {};\n\nsections.forEach(section => {\n  if (section.trim()) {\n    const lines = section.split('\\n');\n    const title = lines[0].trim();\n    const content = lines.slice(1).join('\\n').trim();\n    \n    // Map titles to filenames\n    if (title.toLowerCase().includes('readme')) {\n      documents['README.md'] = `# ${title}\\n${content}`;\n    } else if (title.toLowerCase().includes('architecture')) {\n      documents['ARCHITECTURE.md'] = `# ${title}\\n${content}`;\n    } else if (title.toLowerCase().includes('api')) {\n      documents['API.md'] = `# ${title}\\n${content}`;\n    } else if (title.toLowerCase().includes('deployment')) {\n      documents['DEPLOYMENT.md'] = `# ${title}\\n${content}`;\n    } else if (title.toLowerCase().includes('contributing')) {\n      documents['CONTRIBUTING.md'] = `# ${title}\\n${content}`;\n    }\n  }\n});\n\n// Add metadata\nconst metadata = {\n  generatedAt: new Date().toISOString(),\n  projectName: projectData.repository.name,\n  techStack: projectData.techStack,\n  version: '1.0.0'\n};\n\nreturn {\n  documents: documents,\n  metadata: metadata,\n  repository: projectData.repository\n};"
+      },
+      "id": "structure-docs",
+      "name": "Structure Documentation",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [2000, 300]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "split-documents",
+      "name": "Process Each Document",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 1,
+      "position": [2220, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Prepare document for storage\nconst allData = $node['Structure Documentation'].json;\nconst documents = allData.documents;\nconst docNames = Object.keys(documents);\nconst currentDoc = docNames[$json.batchIndex];\n\nif (currentDoc) {\n  return {\n    filename: currentDoc,\n    content: documents[currentDoc],\n    repository: allData.repository,\n    metadata: allData.metadata\n  };\n}\n\nreturn null;"
+      },
+      "id": "prepare-document",
+      "name": "Prepare Document",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [2440, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "resource": "file",
+        "operation": "create",
+        "owner": "={{$json.repository.owner}}",
+        "repository": "={{$json.repository.name}}",
+        "filePath": "docs/{{$json.filename}}",
+        "fileContent": "{{$json.content}}",
+        "commitMessage": "docs: Auto-generate {{$json.filename}} documentation\n\nGenerated by automated documentation workflow\nTimestamp: {{$json.metadata.generatedAt}}"
+      },
+      "id": "commit-to-github",
+      "name": "Commit Documentation to GitHub",
+      "type": "n8n-nodes-base.github",
+      "typeVersion": 1,
+      "position": [2660, 300]
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:5432",
+        "operation": "executeQuery",
+        "query": "INSERT INTO project_documentation_log (project_name, repository_name, document_type, generated_at, tech_stack, status) VALUES ('{{$json.repository.name}}', '{{$json.repository.name}}', '{{$json.filename}}', '{{$json.metadata.generatedAt}}', '{{JSON.stringify($json.metadata.techStack)}}', 'completed')"
+      },
+      "id": "log-to-postgres",
+      "name": "Log to PostgreSQL",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 1,
+      "position": [2880, 300]
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:6379",
+        "operation": "set",
+        "key": "project:{{$json.repository.name}}:last_documented",
+        "value": "{{$json.metadata.generatedAt}}",
+        "expire": true,
+        "ttl": 86400
+      },
+      "id": "cache-in-redis",
+      "name": "Cache Status in Redis",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [3100, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Prepare notification data\nconst allDocuments = $node['Structure Documentation'].json;\nconst repository = allDocuments.repository;\nconst metadata = allDocuments.metadata;\n\nreturn {\n  message: `📚 Documentation Updated for ${repository.name}`,\n  details: {\n    project: repository.name,\n    documentsGenerated: Object.keys(allDocuments.documents),\n    techStack: metadata.techStack,\n    timestamp: metadata.generatedAt,\n    repository: repository.name\n  }\n};"
+      },
+      "id": "prepare-notification",
+      "name": "Prepare Notification",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [2220, 500]
+    },
+    {
+      "parameters": {
+        "url": "{{$parameter.slackWebhookUrl}}",
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "{\n  \"text\": \"{{$json.message}}\",\n  \"blocks\": [\n    {\n      \"type\": \"section\",\n      \"text\": {\n        \"type\": \"mrkdwn\",\n        \"text\": \"*{{$json.message}}*\\n\\n📁 Repository: `{{$json.details.repository}}`\\n⏰ Generated: {{$json.details.timestamp}}\\n\\n*Documents Created:*\\n{{$json.details.documentsGenerated.map(d => `• ${d}`).join('\\n')}}\"\n      }\n    }\n  ]\n}"
+      },
+      "id": "send-slack-notification",
+      "name": "Send Slack Notification",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [2440, 500]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\n  \"status\": \"success\",\n  \"message\": \"Documentation generated successfully\",\n  \"project\": \"{{$json.repository.name}}\",\n  \"documentsCreated\": {{JSON.stringify($json.documents ? Object.keys($json.documents) : [])}},\n  \"timestamp\": \"{{$json.metadata ? $json.metadata.generatedAt : new Date().toISOString()}}\"\n}"
+      },
+      "id": "webhook-response",
+      "name": "Send Webhook Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2660, 500]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\n  \"status\": \"error\",\n  \"message\": \"No repositories to process\",\n  \"timestamp\": \"{{new Date().toISOString()}}\"\n}"
+      },
+      "id": "no-repos-response",
+      "name": "No Repositories Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [900, 500]
+    }
+  ],
+  "connections": {
+    "Project Update Webhook": {
+      "main": [
+        [
+          {
+            "node": "Parse Trigger Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hourly Documentation Check": {
+      "main": [
+        [
+          {
+            "node": "Parse Trigger Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Trigger Data": {
+      "main": [
+        [
+          {
+            "node": "Has Repositories?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Repositories?": {
+      "main": [
+        [
+          {
+            "node": "Process Each Repository",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Repositories Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Each Repository": {
+      "main": [
+        [
+          {
+            "node": "Get Repository Info",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Repository Info": {
+      "main": [
+        [
+          {
+            "node": "Get Repository Structure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Repository Structure": {
+      "main": [
+        [
+          {
+            "node": "Analyze Project Structure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze Project Structure": {
+      "main": [
+        [
+          {
+            "node": "Generate Documentation with Claude",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Documentation with Claude": {
+      "main": [
+        [
+          {
+            "node": "Structure Documentation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structure Documentation": {
+      "main": [
+        [
+          {
+            "node": "Process Each Document",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Prepare Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Each Document": {
+      "main": [
+        [
+          {
+            "node": "Prepare Document",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Document": {
+      "main": [
+        [
+          {
+            "node": "Commit Documentation to GitHub",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Commit Documentation to GitHub": {
+      "main": [
+        [
+          {
+            "node": "Log to PostgreSQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log to PostgreSQL": {
+      "main": [
+        [
+          {
+            "node": "Cache Status in Redis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cache Status in Redis": {
+      "main": [
+        [
+          {
+            "node": "Send Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Notification": {
+      "main": [
+        [
+          {
+            "node": "Send Slack Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Slack Notification": {
+      "main": [
+        [
+          {
+            "node": "Send Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "timezone": "America/New_York",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "1",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "id": "automated-project-documentation",
+  "tags": [
+    {
+      "createdAt": "2025-10-22T00:00:00.000Z",
+      "updatedAt": "2025-10-22T00:00:00.000Z",
+      "id": "documentation",
+      "name": "documentation"
+    },
+    {
+      "createdAt": "2025-10-22T00:00:00.000Z",
+      "updatedAt": "2025-10-22T00:00:00.000Z",
+      "id": "automation",
+      "name": "automation"
+    }
+  ]
+}
