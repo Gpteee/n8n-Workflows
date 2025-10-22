@@ -1,0 +1,483 @@
+{
+  "name": "Project Documentation Automation",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 6
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "doc-update",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "GitHub Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 500],
+      "webhookId": "project-doc-webhook"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "repo-config",
+              "name": "repositories",
+              "value": "={{ $json.repositories || [\n  {\n    \"owner\": \"your-org\",\n    \"repo\": \"main-repo\",\n    \"branch\": \"main\",\n    \"docPath\": \"docs/\"\n  }\n] }}",
+              "type": "array"
+            },
+            {
+              "id": "trigger-source",
+              "name": "triggerSource",
+              "value": "={{ $node.name }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "merge-triggers",
+      "name": "Merge Triggers",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [440, 400]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "supabase-config",
+              "name": "supabaseUrl",
+              "value": "={{ $env.SUPABASE_URL }}",
+              "type": "string"
+            },
+            {
+              "id": "supabase-key",
+              "name": "supabaseKey",
+              "value": "={{ $env.SUPABASE_ANON_KEY }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "load-config",
+      "name": "Load Configuration",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [640, 400]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "owner": {
+          "__rl": true,
+          "value": "={{ $json.repositories[0].owner }}",
+          "mode": "name"
+        },
+        "repository": {
+          "__rl": true,
+          "value": "={{ $json.repositories[0].repo }}",
+          "mode": "name"
+        },
+        "returnAll": false,
+        "limit": 50
+      },
+      "id": "github-get-commits",
+      "name": "Get Recent Commits",
+      "type": "n8n-nodes-base.github",
+      "typeVersion": 1.4,
+      "position": [840, 400],
+      "credentials": {
+        "githubApi": {
+          "id": "github-credentials",
+          "name": "GitHub account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "operation": "get",
+        "owner": {
+          "__rl": true,
+          "value": "={{ $json.repositories[0].owner }}",
+          "mode": "name"
+        },
+        "repository": {
+          "__rl": true,
+          "value": "={{ $json.repositories[0].repo }}",
+          "mode": "name"
+        },
+        "filePath": "={{ $json.repositories[0].branch }}:README.md",
+        "asBinaryProperty": false
+      },
+      "id": "github-get-readme",
+      "name": "Get Current README",
+      "type": "n8n-nodes-base.github",
+      "typeVersion": 1.4,
+      "position": [1040, 300],
+      "credentials": {
+        "githubApi": {
+          "id": "github-credentials",
+          "name": "GitHub account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "operation": "list",
+        "owner": {
+          "__rl": true,
+          "value": "={{ $json.repositories[0].owner }}",
+          "mode": "name"
+        },
+        "repository": {
+          "__rl": true,
+          "value": "={{ $json.repositories[0].repo }}",
+          "mode": "name"
+        },
+        "filePath": "={{ $json.repositories[0].branch }}:"
+      },
+      "id": "github-list-files",
+      "name": "List Repository Files",
+      "type": "n8n-nodes-base.github",
+      "typeVersion": 1.4,
+      "position": [1040, 500],
+      "credentials": {
+        "githubApi": {
+          "id": "github-credentials",
+          "name": "GitHub account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Analyze repository structure and prepare documentation context\nconst commits = $input.all()[0].json;\nconst readme = $input.all()[1].json;\nconst files = $input.all()[2].json;\n\n// Extract project structure\nconst structure = {\n  totalFiles: files.length,\n  directories: new Set(),\n  fileTypes: {},\n  recentActivity: []\n};\n\nfiles.forEach(file => {\n  const parts = file.path.split('/');\n  if (parts.length > 1) {\n    structure.directories.add(parts[0]);\n  }\n  \n  const ext = file.path.split('.').pop();\n  structure.fileTypes[ext] = (structure.fileTypes[ext] || 0) + 1;\n});\n\n// Analyze recent commits\ncommits.slice(0, 10).forEach(commit => {\n  structure.recentActivity.push({\n    date: commit.commit.author.date,\n    message: commit.commit.message,\n    author: commit.commit.author.name\n  });\n});\n\n// Prepare Claude prompt context\nconst context = {\n  currentReadme: readme.content ? Buffer.from(readme.content, 'base64').toString('utf8') : 'No existing README',\n  projectStructure: {\n    directories: Array.from(structure.directories),\n    fileTypes: structure.fileTypes,\n    totalFiles: structure.totalFiles\n  },\n  recentCommits: structure.recentActivity,\n  repository: $json.repositories[0],\n  analysisTimestamp: new Date().toISOString()\n};\n\nreturn { json: context };"
+      },
+      "id": "analyze-structure",
+      "name": "Analyze Project Structure",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1240, 400]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "claude-prompt",
+              "name": "prompt",
+              "value": "=You are a technical documentation expert. Analyze this project and generate comprehensive documentation.\n\n**Current Documentation:**\n{{ $json.currentReadme }}\n\n**Project Structure:**\n- Total Files: {{ $json.projectStructure.totalFiles }}\n- Directories: {{ $json.projectStructure.directories.join(', ') }}\n- File Types: {{ JSON.stringify($json.projectStructure.fileTypes) }}\n\n**Recent Activity:**\n{{ $json.recentCommits.map(c => `- ${c.date}: ${c.message} (${c.author})`).join('\\n') }}\n\n**Tech Stack:**\n- Frontend: Lovable\n- Backend: Supabase\n- Database: PostgreSQL, Redis, Qdrant\n- AI Tools: Claude.ai, Cursor\n- Automation: n8n\n\n**Task:**\n1. Generate/update README.md with:\n   - Project overview and purpose\n   - Architecture diagram (mermaid syntax)\n   - Setup instructions\n   - Tech stack details\n   - Development workflow\n   - Recent changes summary\n\n2. Generate ARCHITECTURE.md with:\n   - System architecture\n   - Component relationships\n   - Data flow\n   - Integration points\n\n3. Generate CHANGELOG.md entry for recent updates\n\nProvide each document as a separate JSON object with fields: { \"file\": \"filename.md\", \"content\": \"markdown content\" }",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "prepare-claude-prompt",
+      "name": "Prepare Claude Prompt",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1440, 400]
+    },
+    {
+      "parameters": {
+        "authentication": "customAuth",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "={{ $env.CLAUDE_API_KEY }}"
+            },
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"claude-3-5-sonnet-20241022\",\n  \"max_tokens\": 4000,\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": {{ JSON.stringify($json.prompt) }}\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "claude-api-call",
+      "name": "Generate Documentation with Claude",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1640, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse Claude response and extract documentation files\nconst response = $input.first().json;\nconst content = response.content[0].text;\n\n// Extract JSON documents from Claude's response\nconst docs = [];\nconst jsonMatches = content.match(/\\{[\\s\\S]*?\"file\"[\\s\\S]*?\"content\"[\\s\\S]*?\\}/g);\n\nif (jsonMatches) {\n  jsonMatches.forEach(match => {\n    try {\n      const doc = JSON.parse(match);\n      docs.push(doc);\n    } catch (e) {\n      // If JSON parsing fails, treat entire content as README\n      docs.push({\n        file: 'README.md',\n        content: content\n      });\n    }\n  });\n} else {\n  // Fallback: treat content as README\n  docs.push({\n    file: 'README.md',\n    content: content\n  });\n}\n\nreturn docs.map(doc => ({ json: doc }));"
+      },
+      "id": "parse-response",
+      "name": "Parse Documentation Files",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1840, 400]
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "operation": "edit",
+        "owner": {
+          "__rl": true,
+          "value": "={{ $json.repository.owner }}",
+          "mode": "name"
+        },
+        "repository": {
+          "__rl": true,
+          "value": "={{ $json.repository.repo }}",
+          "mode": "name"
+        },
+        "filePath": "={{ $json.file }}",
+        "fileContent": "={{ $json.content }}",
+        "commitMessage": "=docs: Update {{ $json.file }} - automated documentation generation"
+      },
+      "id": "github-update-file",
+      "name": "Update GitHub Documentation",
+      "type": "n8n-nodes-base.github",
+      "typeVersion": 1.4,
+      "position": [2040, 300],
+      "credentials": {
+        "githubApi": {
+          "id": "github-credentials",
+          "name": "GitHub account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.supabaseUrl }}/rest/v1/documentation_history",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $json.supabaseKey }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.supabaseKey }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"repository\": \"{{ $json.repository.owner }}/{{ $json.repository.repo }}\",\n  \"file\": \"{{ $json.file }}\",\n  \"content\": {{ JSON.stringify($json.content) }},\n  \"updated_at\": \"{{ new Date().toISOString() }}\",\n  \"trigger_source\": \"{{ $json.triggerSource }}\"\n}",
+        "options": {}
+      },
+      "id": "supabase-log",
+      "name": "Log to Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2040, 500]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"status\": \"success\",\n  \"message\": \"Documentation updated\",\n  \"files\": {{ JSON.stringify($json.files) }},\n  \"timestamp\": \"{{ new Date().toISOString() }}\"\n}",
+        "options": {}
+      },
+      "id": "respond-webhook",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [2240, 400]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Merge Triggers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GitHub Webhook": {
+      "main": [
+        [
+          {
+            "node": "Merge Triggers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Triggers": {
+      "main": [
+        [
+          {
+            "node": "Load Configuration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Configuration": {
+      "main": [
+        [
+          {
+            "node": "Get Recent Commits",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Recent Commits": {
+      "main": [
+        [
+          {
+            "node": "Get Current README",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "List Repository Files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Current README": {
+      "main": [
+        [
+          {
+            "node": "Analyze Project Structure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List Repository Files": {
+      "main": [
+        [
+          {
+            "node": "Analyze Project Structure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze Project Structure": {
+      "main": [
+        [
+          {
+            "node": "Prepare Claude Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Claude Prompt": {
+      "main": [
+        [
+          {
+            "node": "Generate Documentation with Claude",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Documentation with Claude": {
+      "main": [
+        [
+          {
+            "node": "Parse Documentation Files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Documentation Files": {
+      "main": [
+        [
+          {
+            "node": "Update GitHub Documentation",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Log to Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update GitHub Documentation": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log to Supabase": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 2,
+  "updatedAt": "2025-10-22T00:00:00.000Z",
+  "versionId": "1"
+}
