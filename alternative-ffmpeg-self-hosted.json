@@ -1,0 +1,203 @@
+{
+  "name": "Alternative: Self-Hosted FFmpeg Video Stitching Node",
+  "description": "Replace the Replicate FFmpeg nodes with this self-hosted version to save costs",
+  "nodes": [
+    {
+      "parameters": {
+        "color": 5,
+        "height": 400,
+        "width": 600,
+        "content": "## Self-Hosted FFmpeg Alternative\n\n### Prerequisites:\n1. n8n must be self-hosted (not cloud)\n2. FFmpeg installed on server\n3. Write permissions in temp directory\n\n### Benefits:\n- No API costs for video stitching\n- Faster processing (local)\n- Full control over encoding\n\n### Installation:\n```bash\nsudo apt-get update\nsudo apt-get install ffmpeg\nffmpeg -version\n```\n\n### Replace these nodes in main workflow:\n- \"Merge Clips into Final Video (Replicate FFmpeg)\"\n- \"Wait for Video Rendering (Replicate)\"\n- \"Retrieve Final Merged Video\"\n\n### With these nodes:\n1. Download Video Clips\n2. Download Audio File\n3. Execute FFmpeg Command\n4. Upload Result to Storage (optional)\n"
+      },
+      "id": "sticky-note-ffmpeg",
+      "name": "FFmpeg Setup Instructions",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [600, 200]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.video_urls[0] }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "download-video-1",
+      "name": "Download Video Clip 1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [800, 400]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.video_urls[1] }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "download-video-2",
+      "name": "Download Video Clip 2",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1000, 400]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.video_urls[2] }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "download-video-3",
+      "name": "Download Video Clip 3",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1200, 400]
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Retrieve Final Sound Output').item.json.output }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "download-audio",
+      "name": "Download Audio File",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1000, 600]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge all downloaded files into a single item with all paths\nconst video1 = items[0].binary?.data?.id || items[0].json.binaryPath;\nconst video2 = items[1].binary?.data?.id || items[1].json.binaryPath;\nconst video3 = items[2].binary?.data?.id || items[2].json.binaryPath;\nconst audio = items[3].binary?.data?.id || items[3].json.binaryPath;\n\nreturn [\n  {\n    json: {\n      video1Path: video1,\n      video2Path: video2,\n      video3Path: video3,\n      audioPath: audio,\n      outputPath: `/tmp/output_${Date.now()}.mp4`\n    }\n  }\n];"
+      },
+      "id": "prepare-paths",
+      "name": "Prepare File Paths",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1400, 500]
+    },
+    {
+      "parameters": {
+        "command": "=# Create a temporary file list for FFmpeg concat\nFILE_LIST=\"/tmp/concat_list_${RANDOM}.txt\"\necho \"file '{{ $json.video1Path }}'\" > $FILE_LIST\necho \"file '{{ $json.video2Path }}'\" >> $FILE_LIST\necho \"file '{{ $json.video3Path }}'\" >> $FILE_LIST\n\n# Concatenate videos and add audio\nffmpeg -y \\\n  -f concat -safe 0 -i \"$FILE_LIST\" \\\n  -i \"{{ $json.audioPath }}\" \\\n  -c:v libx264 -preset medium -crf 23 \\\n  -c:a aac -b:a 128k \\\n  -shortest \\\n  -movflags +faststart \\\n  \"{{ $json.outputPath }}\"\n\n# Clean up temp files\nrm \"$FILE_LIST\"\n\n# Return the output path\necho \"{{ $json.outputPath }}\"",
+        "description": "Stitch videos with FFmpeg"
+      },
+      "id": "execute-ffmpeg",
+      "name": "Execute FFmpeg Stitch",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [1600, 500]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Read the output video file and prepare for upload\nconst fs = require('fs');\nconst outputPath = items[0].json.outputPath;\n\n// Read file as binary\nconst videoBuffer = fs.readFileSync(outputPath);\n\n// Clean up the output file\nfs.unlinkSync(outputPath);\n\nreturn [\n  {\n    json: {\n      filename: `final_video_${Date.now()}.mp4`,\n      size: videoBuffer.length,\n      outputPath: outputPath\n    },\n    binary: {\n      video: {\n        data: videoBuffer.toString('base64'),\n        mimeType: 'video/mp4',\n        fileName: `final_video_${Date.now()}.mp4`,\n        fileExtension: 'mp4'\n      }\n    }\n  }\n];"
+      },
+      "id": "prepare-output",
+      "name": "Prepare Video Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1800, 500]
+    },
+    {
+      "parameters": {
+        "color": 4,
+        "height": 300,
+        "width": 500,
+        "content": "## Optional: Upload to Storage\n\nAdd one of these nodes after \"Prepare Video Output\":\n\n### Option A: Upload to Google Drive\n- Use Google Drive node\n- Action: Upload\n- Binary data: video\n\n### Option B: Upload to AWS S3\n- Use AWS S3 node\n- Action: Upload\n- Binary data: video\n\n### Option C: Upload to Cloudinary\n- Use HTTP Request\n- POST to Cloudinary API\n- Include video binary\n\n### Option D: Use Local n8n Storage\n- Use Write Binary File node\n- Path: /your/storage/path/\n- Serve via n8n static files\n"
+      },
+      "id": "sticky-upload-options",
+      "name": "Upload Options",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [2000, 400]
+    }
+  ],
+  "connections": {
+    "Download Video Clip 1": {
+      "main": [
+        [
+          {
+            "node": "Prepare File Paths",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Video Clip 2": {
+      "main": [
+        [
+          {
+            "node": "Prepare File Paths",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Video Clip 3": {
+      "main": [
+        [
+          {
+            "node": "Prepare File Paths",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Audio File": {
+      "main": [
+        [
+          {
+            "node": "Prepare File Paths",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare File Paths": {
+      "main": [
+        [
+          {
+            "node": "Execute FFmpeg Stitch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute FFmpeg Stitch": {
+      "main": [
+        [
+          {
+            "node": "Prepare Video Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "tags": [],
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}
