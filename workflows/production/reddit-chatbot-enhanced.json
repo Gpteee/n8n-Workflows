@@ -1,0 +1,391 @@
+{
+  "name": "Reddit Research Chatbot - Enhanced",
+  "nodes": [
+    {
+      "parameters": {
+        "public": true,
+        "initialMessages": "Hi! I'm your Reddit Research Assistant. I can search across Reddit for any topic and find the most relevant discussions, comments, and recommendations. I can filter by time periods (last week, month, year) and return top results.\n\nTry asking:\n- \"Find the best AI tools for productivity from the last month\"\n- \"What are people saying about Python frameworks this week?\"\n- \"Top 10 discussions about electric cars in the last year\"",
+        "options": {}
+      },
+      "id": "02032948-3f3a-49fb-866c-3980c841b325",
+      "name": "Chat Trigger",
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "position": [
+        940,
+        460
+      ],
+      "webhookId": "reddit-research-bot",
+      "typeVersion": 1.1
+    },
+    {
+      "parameters": {
+        "contextWindowLength": 30
+      },
+      "id": "e71dd349-7720-434c-bd10-cb1ccd893511",
+      "name": "Conversation Memory",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "position": [
+        1340,
+        700
+      ],
+      "typeVersion": 1.3
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4o-mini"
+        },
+        "options": {
+          "temperature": 0.7
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        1200,
+        700
+      ],
+      "id": "3466b935-06ca-4c51-9568-89d788ae7eb6",
+      "name": "OpenAI Chat Model",
+      "credentials": {
+        "openAiApi": {
+          "id": "4hoG8Z9NudrR6KTo",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {
+          "systemMessage": "=<role>\nYou are an Advanced Reddit Research Assistant that searches across all of Reddit to find discussions, recommendations, and community insights on any topic. You excel at finding time-sensitive information and extracting the most valuable content from Reddit communities.\n</role>\n\n<capabilities>\n**What I Can Do:**\n- Search ANY subreddit or all of Reddit for specific topics\n- Filter results by timeframe: last week, last month, last year, or all time\n- Find posts sorted by relevance, top votes, or trending (hot)\n- Retrieve top comments from the most relevant discussions\n- Return top 10 results (or custom amount) ranked by community engagement\n- Aggregate frequently mentioned tools, products, or solutions from discussions\n- Provide source links with upvote counts and timestamps\n\n**Search Tools Available:**\n1. **Search by Relevance** - Best overall match for your query\n2. **Search Top (All Time)** - Highest voted posts ever\n3. **Search Hot** - Currently trending discussions\n4. **Search Last Week** - Top posts from past 7 days\n5. **Search Last Month** - Top posts from past 30 days  \n6. **Search Last Year** - Top posts from past 12 months\n7. **Perplexity AI** - Fallback for general knowledge questions\n</capabilities>\n\n<tool_selection_logic>\n**Time-Sensitive Queries:**\n- User mentions \"last week\" / \"this week\" / \"recent\" → Use \"Search Last Week\"\n- User mentions \"last month\" / \"past month\" → Use \"Search Last Month\"\n- User mentions \"last year\" / \"this year\" → Use \"Search Last Year\"\n- No timeframe specified → Use \"Search by Relevance\" (default)\n\n**Query Type:**\n- \"Best/top discussions\" → Use \"Search Top (All Time)\"\n- \"Trending/popular now\" → Use \"Search Hot\"\n- \"Find recommendations\" → Use time-appropriate search + look for comment patterns\n- General AI questions (not Reddit-specific) → Use Perplexity AI\n\n**Best Practices:**\n- Always use Reddit tools for Reddit-related queries\n- Extract keywords from user query for search terms\n- If searching specific subreddit, use format: \"subreddit:r/python your query\"\n- Default to returning 10 results unless user specifies otherwise\n- Cite sources with post titles, scores, and direct links\n</tool_selection_logic>\n\n<output_formatting>\n**For Tool/Product Recommendations:**\n\n**Top 10 [Topic] from [Timeframe]:**\n\n1. **[Tool/Product Name]** (mentioned in X posts)\n   - Why recommended: [Key benefit from community]\n   - Top discussion: [Post Title] (↑X upvotes)\n   - Link: [Reddit URL]\n\n2. [Next item...]\n\n**For General Discussions:**\n\n**Top Results for \"[Query]\":**\n\n📌 **[Post Title]**\n- Subreddit: r/[name]\n- Score: ↑X upvotes | 💬 X comments\n- Posted: [timeframe]\n- Key insight: [1-2 sentence summary]\n- Link: [URL]\n\n**When No Results Found:**\n\"I couldn't find any Reddit discussions matching '[query]' in the [timeframe]. Try:\n- Broadening the search terms\n- Extending the time period\n- Checking if there's a more specific subreddit for this topic\"\n\n**Important:** \n- ALWAYS cite actual Reddit sources - never fabricate posts\n- Include upvote counts to show community validation\n- Provide direct links so users can read full discussions\n- If results are limited, explain why and suggest alternatives\n</output_formatting>\n\n<example_interactions>\nUser: \"Find the best AI tools for productivity from the last month\"\n→ Action: Use \"Search Last Month\" with keywords \"AI tools productivity\"\n→ Response: List top 10 tools mentioned, ranked by frequency and upvotes\n\nUser: \"What's trending in r/MachineLearning right now?\"\n→ Action: Use \"Search Hot\" limited to r/MachineLearning subreddit\n→ Response: List current hot posts with summaries\n\nUser: \"Most discussed Python frameworks this year\"\n→ Action: Use \"Search Last Year\" with \"Python frameworks\"\n→ Response: Aggregate mentions of frameworks (FastAPI, Django, Flask, etc.) with counts\n\nUser: \"Explain how transformers work in AI\"\n→ Action: Use Perplexity AI (general knowledge, not Reddit-specific)\n→ Response: Technical explanation from Perplexity\n</example_interactions>\n\n<context>\n**Current Date & Time:** {{ $now }}\n\n**Limitations:**\n- Reddit API rate limits apply (I'll notify you if reached)\n- Cannot access deleted or private content\n- Cannot post or comment (read-only access)\n- Historical content limited by Reddit's data retention\n</context>\n\n<personality>\nI'm direct, efficient, and data-driven. I focus on delivering actionable Reddit insights with proper citations. I don't waste time with unnecessary pleasantries - you ask, I search, I deliver results with sources.\n</personality>"
+        }
+      },
+      "id": "5955a0d0-f743-4660-aea0-c45467784201",
+      "name": "AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "position": [
+        1200,
+        460
+      ],
+      "typeVersion": 2.2
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "location": "allReddit",
+        "keyword": "={{ $fromAI('Keyword', 'Enter search keywords', 'string') }}",
+        "returnAll": false,
+        "limit": 10,
+        "additionalFields": {
+          "sort": "relevance"
+        }
+      },
+      "type": "n8n-nodes-base.redditTool",
+      "typeVersion": 1,
+      "position": [
+        1480,
+        560
+      ],
+      "id": "ba73b387-9c22-4374-af3c-163720f23fa0",
+      "name": "Search by Relevance",
+      "credentials": {
+        "redditOAuth2Api": {
+          "id": "nVwLKoaJx1iUvpTF",
+          "name": "Reddit account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "location": "allReddit",
+        "keyword": "={{ $fromAI('Keyword', 'Enter search keywords', 'string') }}",
+        "returnAll": false,
+        "limit": 10,
+        "additionalFields": {
+          "sort": "top",
+          "time": "all"
+        }
+      },
+      "type": "n8n-nodes-base.redditTool",
+      "typeVersion": 1,
+      "position": [
+        1480,
+        680
+      ],
+      "id": "4fb882b2-a16e-4dc7-ad8f-127fdbd4cdfc",
+      "name": "Search Top (All Time)",
+      "credentials": {
+        "redditOAuth2Api": {
+          "id": "nVwLKoaJx1iUvpTF",
+          "name": "Reddit account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "location": "allReddit",
+        "keyword": "={{ $fromAI('Keyword', 'Enter search keywords', 'string') }}",
+        "returnAll": false,
+        "limit": 10,
+        "additionalFields": {
+          "sort": "hot"
+        }
+      },
+      "type": "n8n-nodes-base.redditTool",
+      "typeVersion": 1,
+      "position": [
+        1480,
+        800
+      ],
+      "id": "d43cfa81-4bb3-44ec-9a54-dc4638140ceb",
+      "name": "Search Hot",
+      "credentials": {
+        "redditOAuth2Api": {
+          "id": "nVwLKoaJx1iUvpTF",
+          "name": "Reddit account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "location": "allReddit",
+        "keyword": "={{ $fromAI('Keyword', 'Enter search keywords', 'string') }}",
+        "returnAll": false,
+        "limit": 10,
+        "additionalFields": {
+          "sort": "top",
+          "time": "week"
+        }
+      },
+      "type": "n8n-nodes-base.redditTool",
+      "typeVersion": 1,
+      "position": [
+        1620,
+        560
+      ],
+      "id": "search-week-001",
+      "name": "Search Last Week",
+      "credentials": {
+        "redditOAuth2Api": {
+          "id": "nVwLKoaJx1iUvpTF",
+          "name": "Reddit account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "location": "allReddit",
+        "keyword": "={{ $fromAI('Keyword', 'Enter search keywords', 'string') }}",
+        "returnAll": false,
+        "limit": 10,
+        "additionalFields": {
+          "sort": "top",
+          "time": "month"
+        }
+      },
+      "type": "n8n-nodes-base.redditTool",
+      "typeVersion": 1,
+      "position": [
+        1620,
+        680
+      ],
+      "id": "search-month-001",
+      "name": "Search Last Month",
+      "credentials": {
+        "redditOAuth2Api": {
+          "id": "nVwLKoaJx1iUvpTF",
+          "name": "Reddit account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "location": "allReddit",
+        "keyword": "={{ $fromAI('Keyword', 'Enter search keywords', 'string') }}",
+        "returnAll": false,
+        "limit": 10,
+        "additionalFields": {
+          "sort": "top",
+          "time": "year"
+        }
+      },
+      "type": "n8n-nodes-base.redditTool",
+      "typeVersion": 1,
+      "position": [
+        1620,
+        800
+      ],
+      "id": "search-year-001",
+      "name": "Search Last Year",
+      "credentials": {
+        "redditOAuth2Api": {
+          "id": "nVwLKoaJx1iUvpTF",
+          "name": "Reddit account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "messages": {
+          "message": [
+            {
+              "content": "={{ $fromAI('query', 'Enter your question', 'string') }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.perplexityTool",
+      "typeVersion": 1,
+      "position": [
+        1480,
+        920
+      ],
+      "id": "7f9f270c-bc02-433b-93ba-e5ee09070a6a",
+      "name": "Perplexity Fallback",
+      "credentials": {
+        "perplexityApi": {
+          "id": "P33cvUfJXG8YsARr",
+          "name": "Perplexity account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Chat Trigger": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Conversation Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search by Relevance": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Top (All Time)": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Hot": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Last Week": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Last Month": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Last Year": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Perplexity Fallback": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "enhanced-v1",
+  "meta": {
+    "instanceId": "your-instance-id"
+  },
+  "id": "reddit-chatbot-enhanced",
+  "tags": [
+    {
+      "createdAt": "2025-10-24T00:00:00.000Z",
+      "updatedAt": "2025-10-24T00:00:00.000Z",
+      "id": "reddit-research",
+      "name": "Reddit Research"
+    }
+  ]
+}
